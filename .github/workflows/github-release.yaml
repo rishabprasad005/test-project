@@ -33,7 +33,7 @@ jobs:
             - name: Create GitHub Release
               run: |
                 echo "PRE_RELEASE=$PRE_RELEASE"
-                #./.github/scripts/create-github-release.sh ${{ github.event.inputs.release-version}} ${{ github.event.inputs.branch}} $GITHUB_REPOSITORY ${{ secrets.ACCESS_TOKEN }} ${{ env.PRE_RELEASE }}
+                ./.github/scripts/create-github-release.sh ${{ github.event.inputs.release-version}} ${{ github.event.inputs.branch}} $GITHUB_REPOSITORY ${{ secrets.ACCESS_TOKEN }} ${{ env.PRE_RELEASE }}
               
             - name: Generate Release Notes
               run: gren release --token=${{ secrets.GITHUB_TOKEN }} --override --debug --data-source=milestones --milestone-match="Release ${{ github.event.inputs.release-version }}"
