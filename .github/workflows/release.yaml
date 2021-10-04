@@ -1,0 +1,109 @@
+name: Release Workflow
+on:
+  workflow_dispatch:
+    inputs:
+      release-version:
+        description: 'Version being released'
+        required: true
+      snapshot-version:
+        description: 'Next snapshot version'
+        required: true
+      branch:
+        description: 'Branch to release from'
+        required: true
+        default: 'master'
+jobs:
+  release:
+    runs-on: ubuntu-18.04
+    if: github.repository_owner == 'shareNwork'
+    env:
+      IS_PRE_RELEASE: false
+    steps:
+      - name: Log Metadata
+        run: |
+          echo "Release Workflow triggered by ${{ env.GITHUB_ACTOR }}"
+          echo "Releasing ${{ env.GITHUB_REPOSITORY }} version ${{ github.event.inputs.release-version }} from branch ${{ github.event.inputs.branch }}"
+          echo "Next Snapshot version will be ${{ github.event.inputs.snapshot-version }}"
+
+      - name: Set up JDK 11
+        uses: AdoptOpenJDK/install-jdk@v1
+        with:
+          version: '11'
+          architecture: x64
+
+      - name: Set up Gren
+        run: npm install github-release-notes -g
+
+      - name: Checkout Code
+        run: |
+          git init
+          git config --global user.name "apicurio-ci"
+          git config --global user.email "apicurio.ci@gmail.com"
+          git remote add origin "https://apicurio-ci:${{ secrets.ACCESS_TOKEN }}@github.com/${GITHUB_REPOSITORY}.git"
+          git fetch
+          git checkout ${{ github.event.inputs.branch }}
+          git branch --set-upstream-to=origin/${{ github.event.inputs.branch }}
+          git pull
+
+      - name: Fetch Maven Wrapper
+        run: mvn -N io.takari:maven:wrapper -Dmaven=3.6.3
+
+      - name: Update Release Version ${{ github.event.inputs.release-version}}
+        run: ./mvnw versions:set -DnewVersion=${{ github.event.inputs.release-version}} -DgenerateBackupPoms=false -DprocessAllModules=true
+
+      - name: Build Registry (All Variants)
+        run: |
+          cd registry
+          make SKIP_TESTS=true BUILD_FLAGS='-Dmaven.wagon.httpconnectionManager.maxTotal=30 -Dmaven.wagon.http.retryHandler.count=5' build-all
+          
+      - name: Commit Release Version Change
+        run: |
+          cd registry
+          git add .
+          git commit -m "Automated update to Release Version:: ${{ github.event.inputs.release-version}}"
+          git push
+          cd ../registry-examples
+          git add .
+          git commit -m "Automated update to Release Version:: ${{ github.event.inputs.release-version}}"
+          git push
+
+      - name: Determine Release Type
+        if: "contains(github.event.inputs.release-version, 'RC')"
+        run: |
+          echo "This is a pre-release. Setting environment variable 'IS_PRE_RELEASE' to true"
+          echo "IS_PRE_RELEASE=true" >> $GITHUB_ENV
+      
+      - name: Create GitHub Release
+        run: |
+          echo "IS_PRE_RELEASE=$IS_PRE_RELEASE"
+          cd registry
+          ./.github/scripts/create-github-release.sh ${{ github.event.inputs.release-version}} ${{ github.event.inputs.branch}} $GITHUB_REPOSITORY ${{ secrets.ACCESS_TOKEN }} ${{ env.IS_PRE_RELEASE }}
+
+      - name: Generate Release Notes
+        run: |
+          cd registry
+          gren release --token=${{ secrets.GITHUB_TOKEN }} --override      
+
+      - name: Update Snapshot Version ${{ github.event.inputs.snapshot-version}}
+        run: |
+          cd registry
+          mvn versions:set -DnewVersion=${{ github.event.inputs.snapshot-version}} -DgenerateBackupPoms=false -DprocessAllModules=true
+
+      - name: Commit Snapshot Version ${{ github.event.inputs.snapshot-version}}
+        run: |
+          cd registry
+          git add .
+          git commit -m "Automated update to next Snapshot Version: ${{ github.event.inputs.snapshot-version}}"
+          git push
+          cd ../registry-examples
+          git add .
+          git commit -m "Automated update to next Snapshot Version: ${{ github.event.inputs.snapshot-version}}"
+          git push 
+
+      - name: Google Chat Notification
+        if: ${{ failure() }}
+        uses: Co-qn/google-chat-notification@releases/v1
+        with:
+          name: ${{ github.workflow }}
+          url: ${{ secrets.GOOGLE_CHAT_WEBHOOK }}
+          status: ${{ job.status }}
