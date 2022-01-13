@@ -1,0 +1,20 @@
+name: Release Workflow
+on:
+  workflow_dispatch:
+    inputs:
+      release-version:
+        description: 'Version being released'
+        required: true
+jobs:
+  test:
+    runs-on: ubuntu-18.04
+    env:
+      IS_PRE_RELEASE: false
+    steps:
+      - name: Log Metadata
+        env:
+          abc: ${{ github.event.inputs.release-version}}
+          def: $IS_PRE_RELEASE
+        run: |
+          echo "${abc}"
+          echo "${def}"
